@@ -25,8 +25,9 @@ $su = SuperUtilities.init($utilities,NUIX_VERSION)
 java_import java.util.regex.Pattern
 
 dialog = TabbedCustomDialog.new("Bulk Redactor")
-general_tab = dialog.addTab("general_tab","General Settings")
+dialog.setHelpUrl("https://github.com/Nuix/Bulk-Redactor")
 
+general_tab = dialog.addTab("general_tab","General Settings")
 general_tab.appendHeader("#{$current_selected_items.size} items selected")
 
 existing_markup_set_names = $current_case.getMarkupSets.map{|ms| ms.getName}
@@ -46,13 +47,28 @@ general_tab.appendHeader(" ")
 general_tab.appendDirectoryChooser("temp_directory","Temp Directory")
 
 expressions_tab = dialog.addTab("expressions_tab","Regular Expressions")
-expressions_tab.appendStringList("expressions")
+expressions_tab.appendHeader("Note: Provided regular expressions are matched in a case sensitive manner!")
+expressions_tab.appendStringList("expressions",true)
+
+dialog.addMenu("Expressions","Generate from Phrase or Term") do
+	phrase = CommonDialogs.getInput("Phrase or term to convert to a regular expression:","")
+	if phrase.nil? == false
+		dialog.setSelectedTabIndex(1)
+		expression = BulkRedactorSettings.phraseToExpression(phrase)
+		expression = "\\b#{expression}\\b"
+		expressions_tab.getControl("expressions").addValue(expression)
+	end
+end
 
 phrases_tab = dialog.addTab("phrases_tab","Terms & Phrases")
-phrases_tab.appendStringList("phrases")
+phrases_tab.appendHeader("Note: Provided phrases/terms are matched in a case insensitive manner!")
+phrases_tab.appendStringList("phrases",true)
 
 named_entity_choices = $current_case.getAllEntityTypes.map{|name| Choice.new(name,name)}
 named_entities_tab = dialog.addTab("named_entities_tab","Named Entities")
+if named_entity_choices.size < 1
+	named_entities_tab.appendHeader("Current case has no named entities.")
+end
 named_entities_tab.appendChoiceTable("named_entities","",named_entity_choices)
 
 dialog.validateBeforeClosing do |values|
