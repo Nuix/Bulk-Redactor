@@ -24,11 +24,28 @@ $su = SuperUtilities.init($utilities,NUIX_VERSION)
 
 java_import java.util.regex.Pattern
 
+items_without_text = $current_case.searchUnsorted("has-text:0")
+selected_items_without_text = $utilities.getItemUtility.intersection($current_selected_items,items_without_text)
+if selected_items_without_text.size > 0
+	if selected_items_without_text.size == $current_selected_items.size
+		message = "All #{selected_items_without_text.size} selected items do not have text and therefore cannot be bulk redacted.\n"+
+			"Consider performing OCR on these items before running this script.  Items without text can be located with the query:\n"+
+			"has-text:0\n\nThe script will now exit..."
+		CommonDialogs.showError(message)
+		exit 1
+	else
+		message = "#{selected_items_without_text.size} of the #{$current_selected_items.size} selected items do not have text and therefore cannot be bulk redacted.\n"+
+			"Consider performing OCR on these items before running this script.  Items without text can be located with the query:\n"+
+			"has-text:0"
+		CommonDialogs.showWarning(message)
+	end
+end
+
 dialog = TabbedCustomDialog.new("Bulk Redactor")
 dialog.setHelpUrl("https://github.com/Nuix/Bulk-Redactor")
 
 general_tab = dialog.addTab("general_tab","General Settings")
-general_tab.appendHeader("#{$current_selected_items.size} items selected")
+general_tab.appendHeader("#{$current_selected_items.size} items selected, #{selected_items_without_text.size} do not have text")
 
 existing_markup_set_names = $current_case.getMarkupSets.map{|ms| ms.getName}
 if existing_markup_set_names.size > 0
@@ -43,20 +60,37 @@ else
 end
 
 general_tab.appendHeader(" ")
-
 general_tab.appendDirectoryChooser("temp_directory","Temp Directory")
+default_temp_directory = File.join($current_case.getLocation.getAbsolutePath,"TemporaryPDFs")
+default_temp_directory.gsub("/","\\")
+general_tab.setText("temp_directory",default_temp_directory)
 
 expressions_tab = dialog.addTab("expressions_tab","Regular Expressions")
 expressions_tab.appendHeader("Note: Provided regular expressions are matched in a case sensitive manner!")
 expressions_tab.appendStringList("expressions",true)
 
-dialog.addMenu("Expressions","Generate from Phrase or Term") do
+dialog.addMenu("Expressions","Generate expression from Phrase/Term...") do
 	phrase = CommonDialogs.getInput("Phrase or term to convert to a regular expression:","")
 	if phrase.nil? == false
 		dialog.setSelectedTabIndex(1)
 		expression = BulkRedactorSettings.phraseToExpression(phrase)
 		expression = "\\b#{expression}\\b"
 		expressions_tab.getControl("expressions").addValue(expression)
+	end
+end
+
+dialog.addMenu("Expressions","Import Phrase/Term list as expressions...") do
+	list_file = CommonDialogs.openFileDialog("C:\\","Text File (*.txt)","txt","Import Phrase/Term List as Expressions")
+	if !list_file.nil? && list_file.exists
+		dialog.setSelectedTabIndex(1)
+		expressions_control = expressions_tab.getControl("expressions")
+		File.open(list_file.getAbsolutePath).each do |line|
+			if line.nil? == false
+				expression = BulkRedactorSettings.phraseToExpression(line)
+				expression = "\\b#{expression}\\b"
+				expressions_control.addValue(expression)
+			end
+		end
 	end
 end
 
