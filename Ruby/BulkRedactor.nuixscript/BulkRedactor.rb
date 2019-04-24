@@ -62,7 +62,7 @@ end
 general_tab.appendHeader(" ")
 general_tab.appendDirectoryChooser("temp_directory","Temp Directory")
 default_temp_directory = File.join($current_case.getLocation.getAbsolutePath,"TemporaryPDFs")
-default_temp_directory.gsub("/","\\")
+default_temp_directory = default_temp_directory.gsub("/","\\")
 general_tab.setText("temp_directory",default_temp_directory)
 
 expressions_tab = dialog.addTab("expressions_tab","Regular Expressions")
