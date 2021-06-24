@@ -64,6 +64,11 @@ general_tab.appendDirectoryChooser("temp_directory","Temp Directory")
 default_temp_directory = File.join($current_case.getLocation.getAbsolutePath,"TemporaryPDFs")
 default_temp_directory = default_temp_directory.gsub("/","\\")
 general_tab.setText("temp_directory",default_temp_directory)
+general_tab.appendRadioButton("apply_redactions","Apply Redactions","markup_operation_group",true)
+general_tab.appendRadioButton("apply_highlights","Apply Higlights","markup_operation_group",false)
+general_tab.appendRadioButton("apply_nothing","Don't Apply Markups (still reports)","markup_operation_group",false)
+general_tab.appendCheckableTextField("generate_report",false,"report_file","","Save Report CSV to")
+general_tab.appendSpinner("concurrency","Concurrency",1,1,128)
 
 expressions_tab = dialog.addTab("expressions_tab","Regular Expressions")
 expressions_tab.appendHeader("Note: Provided regular expressions are matched in a case sensitive manner!")
@@ -106,11 +111,13 @@ end
 named_entities_tab.appendChoiceTable("named_entities","",named_entity_choices)
 
 dialog.validateBeforeClosing do |values|
-	# If settings state that user is creating a markup set, we need to make sure they
-	# actually provided a usable markup set name
-	if !values["use_existing_markup_set"] && (values["new_markup_set_name"].nil? || values["new_markup_set_name"].strip.empty?)
-		CommonDialogs.showWarning("Please provide a markup set name")
-		next false
+	if !values["apply_nothing"]
+		# If settings state that user is creating a markup set, we need to make sure they
+		# actually provided a usable markup set name
+		if !values["use_existing_markup_set"] && (values["new_markup_set_name"].nil? || values["new_markup_set_name"].strip.empty?)
+			CommonDialogs.showWarning("Please provide a markup set name")
+			next false
+		end
 	end
 
 	# Make sure at least 1 regex or phrase/term was provided
@@ -134,6 +141,16 @@ dialog.validateBeforeClosing do |values|
 		next false
 	end
 
+	if values["generate_report"] && values["report_file"].strip.empty?
+		CommonDialogs.showWarning("Please supply a report CSV file path.")
+		next false
+	end
+
+	if !values["generate_report"] && values["apply_nothing"]
+		CommonDialogs.showWarning("Please select a markup type or enable report generation.")
+		next false
+	end
+
 	next true
 end
 
@@ -153,6 +170,15 @@ if dialog.getDialogResult == true
 	named_entities = values["named_entities"]
 	temp_directory = values["temp_directory"]
 
+	apply_redactions = values["apply_redactions"]
+	apply_highlights = values["apply_highlights"]
+	apply_nothing = values["apply_nothing"]
+
+	generate_report = values["generate_report"]
+	report_file = values["report_file"]
+
+	concurrency = values["concurrency"]
+
 	ProgressDialog.forBlock do |pd|
 		pd.setTitle("Bulk Redactor")
 		pd.setAbortButtonVisible(false)
@@ -164,6 +190,17 @@ if dialog.getDialogResult == true
 		settings.setExpressions(expressions)
 		settings.addPhrases(phrases)
 		settings.setNamedEntityTypes(named_entities)
+
+		if apply_redactions
+			settings.setApplyRedactions(true)
+			settings.setApplyHighLights(false)
+		elsif apply_highlights
+			settings.setApplyRedactions(false)
+			settings.setApplyHighLights(true)
+		elsif apply_nothing
+			settings.setApplyRedactions(false)
+			settings.setApplyHighLights(false)
+		end
 
 		br.whenMessageLogged do |message|
 			pd.logMessage(message)
@@ -178,7 +215,42 @@ if dialog.getDialogResult == true
 			end
 		end
 
-		br.findAndRedact($current_case,settings,$current_selected_items)
+		regions = br.findAndMarkup($current_case,settings,$current_selected_items,concurrency)
+
+		if generate_report
+			pd.setMainStatusAndLogIt("Generating report CSV...")
+			require 'csv'
+			java.io.File.new(report_file).getParentFile.mkdirs
+			CSV.open(report_file,"w:utf-8") do |csv|
+				headers = [
+					"GUID",
+					"Name",
+					"Page",
+					"Matched Text",
+					"X",
+					"Y",
+					"WIDTH",
+					"HEIGHT",
+				]
+				csv << headers
+				regions.each_with_index do |region,region_index|
+					pd.setMainProgress(region_index+1,regions.size)
+					pd.setSubStatus("#{region_index+1}/#{regions.size}")
+					item = region.getItem
+					row_values = [
+						item.getGuid,
+						item.getLocalisedName,
+						region.getPageNumber,
+						region.getText,
+						region.getX,
+						region.getY,
+						region.getWidth,
+						region.getHeight,
+					]
+					csv << row_values
+				end
+			end
+		end
 
 		pd.setCompleted
 	end
